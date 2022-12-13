@@ -1,17 +1,21 @@
 import websocket
 import traceback    # 例外時のスタックとレースを表示するモジュール。
 import json
-from collections import defaultdict
 import pprint
+import serial 
+import time 
+import threading 
 
 
 class EmotionHandler(object):
     def __init__(
         self,
         url,
+        port = None
     ):
         self.candidate_emotion = dict()
         self.url = url
+        #self.serial = serial.Serial(port,9600)
     
     def start(self):
         ws = websocket.WebSocketApp(self.url,
@@ -21,7 +25,9 @@ class EmotionHandler(object):
                                 on_close=self.on_close,
                                 on_cont_message=self.on_cont_message,
                                 on_data=self.on_data)
-    
+                        
+        t = threading.Thread(target = self.set_interval_worker,daemon=True)
+        t.start()
         ws.run_forever()
     
     def get_normalized_expression(self,obj):
@@ -41,7 +47,8 @@ class EmotionHandler(object):
 
     def get_normalized_sound(self,obj):
         sound = obj["sound"]
-
+        if sound is None:
+            return False
         return sound > 100
     
     def on_open(self,ws):
@@ -61,7 +68,6 @@ class EmotionHandler(object):
         """
         if "disconnected" in message:
             connectionId = message.split()[0]
-            print("disconnect!")
             if connectionId in self.candidate_emotion.keys():
                 del self.candidate_emotion[connectionId]
             return 
@@ -73,7 +79,7 @@ class EmotionHandler(object):
         self.candidate_emotion[received_data["connectionId"]]["expression"] = self.get_normalized_expression(received_data)
         self.candidate_emotion[received_data["connectionId"]]["sound"] = self.get_normalized_sound(received_data)
         self.candidate_emotion[received_data["connectionId"]]["candidateId"] = received_data["candidateId"]
-        pprint.pprint(self.candidate_emotion)
+        # pprint.pprint(self.candidate_emotion)
         # print(received_data["connectionId"], " send data")
 
     def on_error(self,ws, error):
@@ -134,19 +140,26 @@ class EmotionHandler(object):
         # print("data: %s" % data)
         # print("data_type: %s" % data_type)
         # print("continue_flag: %s" % continue_flag)
+
+    def set_interval_worker(self):
+        while True:
+            serial_json = dict()
+            for val in self.candidate_emotion.values():
+                serial_json["candidate" + str(val["candidateId"])] = {"expression": val["expression"], "sound": val["sound"]}
+            pprint.pprint(serial_json)
+            
+            serial_json = json.dumps(serial_json)
+            #self.serial.write((serial_json+'\r\n').encode('utf-8'))
+            time.sleep(1)
+
     
 
 
-
-
-
-
-    
 
 
 if __name__ == "__main__":
     url = "wss://nw66veb21f.execute-api.ap-northeast-1.amazonaws.com/production"
-    handler = EmotionHandler(url = url)
+    handler = EmotionHandler(url = url,port = "COM12")
     handler.start()
 
     
